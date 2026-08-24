@@ -4,6 +4,7 @@
 **Company / Org:** KPMG  
 **Challenge Advisor:** Abhinav Raghunathan, abhinavraghunathan@kpmg.com  
 **AI Coach:** Alexandra Ladyzhensky, alexandra.ladyzhensky@breakthroughtech.org
+
 **Program Manager:** Tyla Daniels, tyla.daniels@breakthroughtech.org
 
 **Program:** Break Through Tech AI Studio - Fall 2026
