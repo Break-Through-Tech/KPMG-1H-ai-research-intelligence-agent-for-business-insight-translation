@@ -143,7 +143,7 @@ The following resources will help your team understand the problem space and pot
 **Official check-ins:** During our biweekly 45-minute AI Studio Lab Section meeting block (2nd and 4th week of every month)
 
  **Other ways to reach out to me with questions:** 
-* **Preferred** Email abhinavraghunathan@kpmg.com; please copy your teammates and AI Studio Coach.
+* **Preferred** Email arikrause@kpmg.com; please copy your teammates and AI Studio Coach.
 * Note that I am **not** on the team's channel within Break Through Tech Discord space. 
 * Note: I will aim to respond within 48 hours. Please reach out to your AI Studio Coach with urgent questions.
 * Optional: Request a team check-in on Zoom if things go off the rails. 
