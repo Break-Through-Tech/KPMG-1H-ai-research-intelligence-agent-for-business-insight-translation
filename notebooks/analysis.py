@@ -1,6 +1,8 @@
 ####### PDF PARSE #######
 import pymupdf
 import re
+from sentence_transformers import SentenceTransformer
+import chromadb
 
 pdf_path = "data/2608.20316v1_Pandora's AI Model Routing Box Efficient Allocation with Costly Value Estimation.pdf"
 pdf = pymupdf.open(pdf_path)
@@ -71,6 +73,122 @@ print("done parsing")
 print(f"created {len(chunks)} chunks")
 
 # Print first 3 chunks
-for chunk in chunks[:3]:
-    print(chunk)
-    print()
+# for chunk in chunks[:3]:
+#     print(chunk)
+#     print()
+
+
+
+
+
+# sample_chunks = [
+#     {
+#         "chunk_id": "test_001",
+#         "paper_id": "2608.20318",
+#         "title": "AI4AI-Bench",
+#         "page": 1,
+#         "text": "This paper evaluates LLM agents using benchmark tasks."
+#     },
+
+#     {
+#         "chunk_id": "test_002",
+#         "paper_id": "2608.20318",
+#         "title": "AI4AI-Bench",
+#         "page": 2,
+#         "text": "The researchers compare different methods for evaluating AI agents."
+#     },
+
+#     {
+#         "chunk_id": "test_003",
+#         "paper_id": "paper_002",
+#         "title": "Agentic AI Research",
+#         "page": 1,
+#         "text": "Agentic AI can assist researchers with collecting and organizing data."
+#     }
+# ]
+
+
+model = SentenceTransformer("all-MiniLM-L6-v2")
+
+
+texts = []
+
+for chunk in chunks:
+    texts.append(chunk["text"])
+
+
+
+embeddings = model.encode(texts)
+
+print("Number of embeddings:", len(embeddings))
+
+
+
+client = chromadb.PersistentClient(path="./chroma_db")
+
+collection = client.get_or_create_collection(
+    name="research_papers"
+)
+
+
+
+for i, chunk in enumerate(chunks):
+
+    collection.add(
+        ids=[chunk["chunk_id"]],
+
+        embeddings=[
+            embeddings[i].tolist()
+        ],
+
+        documents=[
+            chunk["text"]
+        ],
+
+        metadatas=[
+            {
+                "paper_id": chunk["paper_id"],
+                "title": chunk["title"],
+                "page": chunk["page"]
+            }
+        ]
+    )
+
+
+print("Chunks successfully stored!")
+
+
+def retrieve_relevant_chunks(question, top_k = 5) :
+    question_embedding = model.encode(question).tolist()
+
+    results = collection.query(query_embeddings = [question_embedding],
+    n_results = top_k
+    )
+
+    retrieved_chunks = []
+
+    for index in range(len(results["documents"][0])):
+        retrieved_chunk = {
+            "text": results["documents"][0][index],
+            "metadata": results["metadatas"][0][index],
+            "distance": results["distances"][0][index],
+        }
+        retrieved_chunks.append(retrieved_chunk)
+
+    return retrieved_chunks
+
+
+question = "I need to help my client reduce their AI cost without sacrificing the quality of the AI output. Pull recent research on how I should proceed ?"
+
+results = retrieve_relevant_chunks(question = question, top_k = 5)
+
+for result_number, result in enumerate(results, start = 1):
+
+    print(f"\nResult {result_number}")
+    print("Title: ", result["metadata"]["title"])
+    print("Page: ", result["metadata"]["page"])
+    print("Distance:", result["distance"])
+    print("Text:", result["text"][:2000])
+    print("-" * 50)
+
+    
