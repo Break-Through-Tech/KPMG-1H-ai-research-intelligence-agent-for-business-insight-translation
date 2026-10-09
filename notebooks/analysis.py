@@ -3,54 +3,75 @@ import pymupdf
 import re
 from sentence_transformers import SentenceTransformer
 import chromadb
+import os 
 
-pdf_path = "data/2608.20316v1_Pandora's AI Model Routing Box Efficient Allocation with Costly Value Estimation.pdf"
-pdf = pymupdf.open(pdf_path)
+data_folder = "data"  
+all_chunks = []        
 
-# Get paper ID from filename
-filename = pdf_path.split("/")[-1]
-paper_id = re.match(r"\d{4}\.\d{5}", filename).group(0)
+def parse_pdf(pdf_path):
+    pdf = pymupdf.open(pdf_path)
 
-# Get title from the first page
-first_page_lines = [
-    line.strip()
-    for line in pdf[0].get_text().split("\n")
-    if line.strip()
-]
+    # Get paper ID from filename
+    filename = pdf_path.split("/")[-1]
+    paper_id_match = re.match(r"\d{4}\.\d{5}", filename)
 
-# Title spans two lines
-title = " ".join(first_page_lines[1:3]).strip()
+    if paper_id_match:
+        paper_id = paper_id_match.group(0)
+    else:
+        paper_id = filename.replace(".pdf", "")
 
-# Store cleaned text for each page
-pages = []
+    # Get title from the first page
+    first_page_lines = [
+        line.strip()
+        for line in pdf[0].get_text().split("\n")
+        if line.strip()
+    ]
 
-for page in pdf:
-    text = page.get_text()
+    # Title spans two lines
+    title = " ".join(first_page_lines[1:3]).strip()
 
-    if text:
-        # Manually remove asterisks from author names only
-        text = text.replace("Adam Fisch∗", "Adam Fisch")
-        text = text.replace("Jacob Eisenstein∗", "Jacob Eisenstein")
+    # Store cleaned text for each page
+    pages = []
 
-        # Fix words split across lines
-        text = re.sub(r"-\s*\n\s*", "", text)
+    for page in pdf:
+        text = page.get_text()
 
-        # Remove repeated dots (from the table of contents)
-        text = re.sub(r"(?:\s*\.\s*){3,}", " ", text)
+        if text:
+            # Manually remove asterisks from author names only
+            text = text.replace("Adam Fisch∗", "Adam Fisch")
+            text = text.replace("Jacob Eisenstein∗", "Jacob Eisenstein")
 
-        # Replace line breaks with spaces
-        text = re.sub(r"\s*\n\s*", " ", text)
+            # Fix words split across lines
+            text = re.sub(r"-\s*\n\s*", "", text)
 
-        # Fix common missing spaces after extracted math
-        text = re.sub(r"(\d)([A-Za-z])", r"\1 \2", text)
+            # Remove repeated dots
+            text = re.sub(r"(?:\s*\.\s*){3,}", " ", text)
 
-        # Remove extra whitespace
-        text = re.sub(r"\s+", " ", text)
+            # Replace line breaks with spaces
+            text = re.sub(r"\s*\n\s*", " ", text)
 
-        pages.append(text.strip())
+            # Fix common missing spaces after extracted math
+            text = re.sub(r"(\d)([A-Za-z])", r"\1 \2", text)
 
-pdf.close()
+            # Remove extra whitespace
+            text = re.sub(r"\s+", " ", text)
 
+            # Skip the specific table of contents
+            # Checks if the page has "contents" near the beginning. Checks for "dataset details" and "supplemental results".
+            # If all three conditions match, continue function skips that page instead of adding it to chunks
+            lower_text = text.lower()
+            if (
+                "contents" in lower_text[:500]
+                and "dataset details" in lower_text
+                and "supplemental results" in lower_text
+            ):
+                continue
+
+            pages.append(text.strip())
+
+    pdf.close()
+
+    return pages, paper_id, title
 
 ####### TEXT CHUNKS (currently 1 chunk per page) #######
 
@@ -68,7 +89,19 @@ def make_chunks(pages, paper_id, title):
 
     return chunks
 
-chunks = make_chunks(pages, paper_id, title)
+# Process every PDF in data folder
+for filename in os.listdir(data_folder):
+    if filename.endswith(".pdf"):
+        pdf_path = os.path.join(data_folder, filename)
+
+        pages, paper_id, title = parse_pdf(pdf_path)
+        chunks = make_chunks(pages, paper_id, title)
+        all_chunks.extend(chunks)
+
+        print(f"Parsed {filename}: {len(chunks)} chunks")
+
+# Count chunks across all papers
+chunks = all_chunks
 print("done parsing")
 print(f"created {len(chunks)} chunks")
 
@@ -79,50 +112,19 @@ print(f"created {len(chunks)} chunks")
 
 
 
-
-
-# sample_chunks = [
-#     {
-#         "chunk_id": "test_001",
-#         "paper_id": "2608.20318",
-#         "title": "AI4AI-Bench",
-#         "page": 1,
-#         "text": "This paper evaluates LLM agents using benchmark tasks."
-#     },
-
-#     {
-#         "chunk_id": "test_002",
-#         "paper_id": "2608.20318",
-#         "title": "AI4AI-Bench",
-#         "page": 2,
-#         "text": "The researchers compare different methods for evaluating AI agents."
-#     },
-
-#     {
-#         "chunk_id": "test_003",
-#         "paper_id": "paper_002",
-#         "title": "Agentic AI Research",
-#         "page": 1,
-#         "text": "Agentic AI can assist researchers with collecting and organizing data."
-#     }
-# ]
-
+######Embed and store in ChromaDB ######
 
 model = SentenceTransformer("all-MiniLM-L6-v2")
-
-
 texts = []
 
 for chunk in chunks:
     texts.append(chunk["text"])
 
-
-
 embeddings = model.encode(texts)
 
 print("Number of embeddings:", len(embeddings))
 
-
+####### Store in ChromaDB #########
 
 client = chromadb.PersistentClient(path="./chroma_db")
 
@@ -133,8 +135,8 @@ collection = client.get_or_create_collection(
 
 
 for i, chunk in enumerate(chunks):
-
-    collection.add(
+# Change from .add to .upsert
+    collection.upsert(
         ids=[chunk["chunk_id"]],
 
         embeddings=[
@@ -157,6 +159,7 @@ for i, chunk in enumerate(chunks):
 
 print("Chunks successfully stored!")
 
+####### RAG Retrival ##########
 
 def retrieve_relevant_chunks(question, top_k = 5) :
     question_embedding = model.encode(question).tolist()
@@ -178,17 +181,39 @@ def retrieve_relevant_chunks(question, top_k = 5) :
     return retrieved_chunks
 
 
-question = "I need to help my client reduce their AI cost without sacrificing the quality of the AI output. Pull recent research on how I should proceed ?"
+####### Questions to test #######
 
-results = retrieve_relevant_chunks(question = question, top_k = 5)
+question1 = "I need to help my client reduce their AI cost without sacrificing the quality of the AI output. Pull recent research on how I should proceed."
 
-for result_number, result in enumerate(results, start = 1):
+question2 = "What is a quick takeaway from this article when it comes to reducing AI costs?"
 
-    print(f"\nResult {result_number}")
-    print("Title: ", result["metadata"]["title"])
-    print("Page: ", result["metadata"]["page"])
-    print("Distance:", result["distance"])
-    print("Text:", result["text"][:2000])
-    print("-" * 50)
+question3 = "What are the business benefits of AI model routing?"
+
+
+# Retrieve/display results for each question
+questions = {
+    "Question 1": question1,
+    "Question 2": question2,
+    "Question 3": question3
+}
+
+for question_name, question in questions.items():
+    print(f"\n{'=' * 60}")
+    print(f"{question_name}: {question}")
+    print("=" * 60)
+
+    results = retrieve_relevant_chunks(question=question, top_k=5)
+
+    for result_number, result in enumerate(results, start=1):
+        print(f"\nResult {result_number}")
+        print("Title:", result["metadata"]["title"])
+        print("Page:", result["metadata"]["page"])
+        print("Distance:", result["distance"])
+        print("Text:", result["text"][:2000])
+        print("-" * 50)
+
+
+
+
 
     
