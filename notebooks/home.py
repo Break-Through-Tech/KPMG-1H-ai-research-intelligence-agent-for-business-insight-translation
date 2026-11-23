@@ -271,8 +271,28 @@ def generate_answer(question, retrieved_chunks, conversation_history=None):
 # Chat interface part
 
 # Initialize conversation history
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+#if "messages" not in st.session_state:
+    #st.session_state.messages = []
+if "chats" not in st.session_state:
+    st.session_state.chats = {"Chat 1": []}
+if "current_chat" not in st.session_state:
+    st.session_state.current_chat = "Chat 1"
+with st.sidebar:
+    st.header("Chat History")
+
+    if st.button("New Chat"):
+        chat_name = f"Chat {len(st.session_state.chats) + 1}"
+        st.session_state.chats[chat_name] = []
+        st.session_state.current_chat = chat_name
+        st.rerun()
+    st.subheader("Previous Chats")
+
+    for chat_name in st.session_state.chats.keys():
+        if st.button(chat_name):
+            st.session_state.current_chat = chat_name
+            st.rerun()
+    st.session_state.messages = st.session_state.chats[st.session_state.current_chat]
+
 
 # Display previous conversation
 for message in st.session_state.messages:
